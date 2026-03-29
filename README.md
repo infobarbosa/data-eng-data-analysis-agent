@@ -339,4 +339,134 @@ As funções acima são código Python nativo. A biblioteca `langchain_core` uti
 
 ---
 
- 
+## Passo 4: Orquestração do Workflow
+
+Nesta etapa, estabeleceremos a orquestração principal do sistema. Modificaremos o arquivo `agent.py` para implementar um padrão cíclico conhecido como **Tool Calling**. O fluxo consistirá em: o modelo avalia a solicitação, decide acionar uma ferramenta, o LangGraph executa a função localmente, injeta o resultado de volta no estado e devolve ao modelo para uma nova avaliação.
+
+### A. Atualizando a Topologia do Grafo (Edite o arquivo `agent.py`)
+
+Abra o arquivo `agent.py` e substitua o código anterior por esta nova estrutura. Introduziremos o `ToolNode` (um nó predefinido do LangGraph que executa as funções) e o `tools_condition` (uma aresta condicional que realiza o roteamento automático).
+
+```python
+from typing import Annotated, TypedDict
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import SystemMessage
+
+# 1. Importando as ferramentas construídas no Passo 3
+from tools import extract_file, analyze_data, notify_user
+
+# 2. Redefinindo o Estado
+# Utilizamos 'add_messages' para que o LangGraph anexe novas mensagens ao histórico 
+# em vez de sobrescrevê-las.
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+# 3. Configuração do Modelo e Injeção das Ferramentas
+tools = [extract_file, analyze_data, notify_user]
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+
+# O método bind_tools informa à API do Google quais ferramentas estão disponíveis
+llm_with_tools = llm.bind_tools(tools)
+
+# 4. Definição do System Prompt (Diretrizes de Comportamento)
+sys_msg = SystemMessage(content="""Você é um agente autônomo de análise de dados.
+Seu objetivo é processar arquivos solicitados, analisá-los e notificar o usuário.
+Siga estas etapas rigorosamente:
+1. Extraia o arquivo fornecido utilizando a ferramenta apropriada.
+2. Analise os dados extraídos para identificar colunas, nulos e distribuições estatísticas.
+3. Elabore um relatório consolidado e envie a notificação ao usuário.
+Sempre utilize as ferramentas disponíveis. Não invente ou simule dados.
+""")
+
+# 5. Criação do Nó Principal (Agente)
+def agent_node(state: AgentState):
+    print(">>> [Nó: Agente] Avaliando o estado atual e determinando a próxima ação...")
+    # Injetamos as diretrizes do sistema no início do histórico de mensagens
+    messages = [sys_msg] + state["messages"]
+    
+    # Invocamos o modelo
+    response = llm_with_tools.invoke(messages)
+    
+    # Retornamos a resposta para ser anexada ao Estado
+    return {"messages": [response]}
+
+# 6. Construção da Topologia do Grafo
+workflow = StateGraph(AgentState)
+
+# Adicionamos os nós de processamento
+workflow.add_node("agent", agent_node)
+
+# ToolNode é um nó utilitário do LangGraph que executa automaticamente a ferramenta solicitada pelo LLM.
+tool_node = ToolNode(tools)
+workflow.add_node("tools", tool_node)
+
+# Configuração do fluxo
+workflow.set_entry_point("agent")
+
+# Aresta Condicional: 
+# Se a resposta do 'agent' contiver uma requisição de ferramenta, vai para 'tools'.
+# Se for apenas uma resposta em texto final, encerra o fluxo (END).
+workflow.add_conditional_edges("agent", tools_condition)
+
+# Após a execução da ferramenta, o fluxo DEVE retornar ao agente para avaliação do resultado.
+workflow.add_edge("tools", "agent")
+
+# Compilação do executável
+app = workflow.compile()
+```
+
+### B. Atualizando o Ponto de Entrada (Edite o arquivo `main.py`)
+
+Agora que o agente possui ferramentas e um fluxo de decisão, precisamos atualizar o `main.py` para enviar a solicitação real de análise de dados, abandonando a mensagem de "Hello World".
+
+Substitua o conteúdo de `main.py` pelo código abaixo:
+
+```python
+import os
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+from agent import app
+
+load_dotenv()
+
+def main():
+    print("Iniciando a orquestração do Agente Analista de Dados...\n")
+    
+    # Definimos o arquivo alvo (que criaremos no Passo 5)
+    arquivo_alvo = "dados_teste.zip"
+    
+    # 1. Formulamos a instrução inicial do usuário
+    mensagem_usuario = HumanMessage(
+        content=f"Inicie a rotina de análise exploratória para o arquivo '{arquivo_alvo}' e notifique-me ao concluir."
+    )
+    
+    # 2. Montamos o Estado Inicial
+    estado_inicial = {"messages": [mensagem_usuario]}
+    
+    print("Invocando a execução do fluxo autônomo...\n")
+    
+    # 3. Execução do Grafo
+    estado_final = app.invoke(estado_inicial)
+    
+    # 4. Tratamento do Resultado Final
+    print("\n=== Execução Concluída ===")
+    
+    # Acessamos a última mensagem do histórico, que contém a conclusão do modelo
+    resposta_final = estado_final["messages"][-1].content
+    print(resposta_final)
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+#### O que acontece fisicamente nesta etapa?
+O método `bind_tools` converte as funções Python (extraídas via decorador `@tool`) em um esquema JSON e as anexa ao payload da requisição HTTP. Quando o modelo de linguagem recebe esse payload e identifica que precisa ler um arquivo, sua resposta à API não é um texto convencional, mas sim um objeto estruturado solicitando a chamada da função `extract_file`. 
+
+A função `tools_condition` intercepta essa resposta, roteia a execução para o nó `tools` no seu ambiente local (seu MacBook), executa o código Python da ferramenta, e anexa o resultado (o caminho do CSV, por exemplo) de volta no histórico para que o modelo possa prosseguir com o Passo 2 (análise).
+
+---
