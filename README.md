@@ -119,6 +119,12 @@ O agente precisa de autenticação para realizar requisições ao modelo (LLM).
 3. Copie a chave gerada.
 4. Abra o arquivo `.env` que criamos no seu editor de código favorito (VS Code, Cursor, Vim) e adicione a seguinte linha (substituindo pela sua chave real):
 
+```sh
+touch ./data-eng-data-analysis-agent/.env
+
+```
+
+Inclua o seguinte conteúdo no arquivo `.env`:
 ```env
 GEMINI_API_KEY=sua_chave_gerada_aqui
 
