@@ -378,13 +378,13 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
 # 2. Função de Fábrica para injeção de dependência
-def create_agent_workflow(api_key: str):
+def create_agent_workflow(api_key: str, model: str = "gemini-2.5-flash") -> StateGraph[AgentState]:
     """
     Constrói e compila o grafo do agente, injetando as credenciais necessárias.
     """
     # Instanciação do modelo utilizando a chave injetada explicitamente
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash", 
+        model=model,
         temperature=0, 
         api_key=api_key
     )
@@ -443,6 +443,7 @@ def main():
     # 1. Recuperação de Configurações (Composition Root)
     load_dotenv()
     api_key = os.getenv("GEMINI_API_KEY")
+    model = os.getenv("GEMINI_MODEL")
     
     # Validação de segurança em nível de orquestrador
     if not api_key:
@@ -450,7 +451,7 @@ def main():
         
     # 2. Injeção de Dependência
     # O main.py entrega a credencial para o construtor do agente
-    app = create_agent_workflow(api_key=api_key)
+    app = create_agent_workflow(api_key=api_key, model=model)
     
     # 3. Definição do arquivo alvo (que criaremos no Passo 5)
     arquivo_alvo = "dados_teste.zip"
