@@ -225,4 +225,126 @@ python main.py
 ### O que deve acontecer no seu terminal:
 Você verá os `prints` mostrando a ordem exata de execução. Primeiro o `main.py` avisa que iniciou, depois a thread entra no `agent.py` (dentro do `pensar_node`), avisa que está acessando a API, e por fim, imprime a resposta exata que pedimos para o Gemini gerar.
 
-Rode o comando e me diga: **Apareceu a mensagem de "Servidor online" ou o console retornou algum erro de chave de API ou de importação?** Assim que validarmos que a rede está comunicando, vamos implementar as ferramentas de manipulação de dados (Pandas) na Fase 3!
+
+---
+
+Perfeito. Vamos estruturar o **Passo 3** mantendo o rigor técnico e a formatação didática que você estabeleceu para o seu material.
+
+Nesta etapa, o foco é construir o arquivo `tools.py`. É importante explicar aos alunos que o modelo de linguagem (LLM) atua apenas como um motor de raciocínio lógico; ele não possui capacidade nativa de acessar o sistema de arquivos local ou executar processamentos pesados. Para contornar essa limitação, nós expomos funções Python clássicas através de um decorador específico (`@tool`), que instrui o modelo sobre quais parâmetros a função exige e o que ela retorna.
+
+Aqui está o conteúdo que você pode incorporar ao seu tutorial:
+
+---
+
+## Passo 3: Implementação das Ferramentas (Tools)
+
+O modelo de linguagem não executa ações no sistema operacional de forma autônoma. Para que o agente consiga manipular arquivos e dados, precisamos construir funções em Python e expô-las como "Ferramentas" (Tools). O LLM receberá a assinatura dessas funções (nome, parâmetros e descrição) e decidirá quando acioná-las.
+
+Nesta fase, implementaremos três ferramentas fundamentais no arquivo `tools.py`.
+
+### A. Construindo as Funções (Edite o arquivo `tools.py`)
+
+Abra o arquivo `tools.py` criado no Passo 1 e insira o código abaixo. Observe o uso do decorador `@tool` do LangChain. A *docstring* (texto entre aspas triplas logo abaixo da declaração da função) é crucial, pois é através dela que o modelo entende o propósito da ferramenta e como utilizá-la.
+
+```python
+import os
+import zipfile
+import pandas as pd
+from langchain_core.tools import tool
+
+# 1. Tool de Extração de Arquivos
+@tool
+def extract_file(file_path: str) -> str:
+    """
+    Extrai um arquivo .zip e retorna o caminho do arquivo .csv contido nele.
+    Se o arquivo de entrada já for um .csv, retorna o próprio caminho.
+    """
+    print(f"\n[Tool: extract_file] Processando o arquivo: {file_path}")
+    
+    if not os.path.exists(file_path):
+        return f"Erro: O arquivo {file_path} não foi encontrado."
+
+    if file_path.endswith('.csv'):
+        return file_path
+        
+    if file_path.endswith('.zip'):
+        extract_dir = os.path.dirname(file_path)
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+            extracted_files = zip_ref.namelist()
+            
+            # Busca o primeiro CSV dentro do ZIP
+            for file in extracted_files:
+                if file.endswith('.csv'):
+                    csv_path = os.path.join(extract_dir, file)
+                    print(f"[Tool: extract_file] Arquivo extraído com sucesso: {csv_path}")
+                    return csv_path
+                    
+        return "Erro: Nenhum arquivo .csv encontrado dentro do .zip."
+    
+    return "Erro: Formato de arquivo não suportado."
+
+# 2. Tool de Análise Estatística (Pandas)
+@tool
+def analyze_data(csv_path: str) -> str:
+    """
+    Lê um arquivo .csv e retorna um resumo estatístico contendo:
+    - O nome das colunas e seus tipos de dados.
+    - A contagem de valores nulos.
+    - As estatísticas descritivas (média, mínimo, máximo, etc.) para colunas numéricas.
+    """
+    print(f"\n[Tool: analyze_data] Iniciando análise do arquivo: {csv_path}")
+    
+    try:
+        # Carrega os dados usando a biblioteca Pandas
+        df = pd.read_csv(csv_path)
+        
+        # Coleta metadados essenciais
+        info_buffer = []
+        info_buffer.append(f"Dimensões do dataset: {df.shape[0]} linhas e {df.shape[1]} colunas.\n")
+        
+        info_buffer.append("Tipos de Dados e Nulos:")
+        for col in df.columns:
+            null_count = df[col].isnull().sum()
+            dtype = str(df[col].dtype)
+            info_buffer.append(f"- Coluna '{col}' ({dtype}): {null_count} valores nulos.")
+            
+        info_buffer.append("\nEstatísticas Descritivas (Colunas Numéricas):")
+        # O método describe() gera estatísticas como média, desvio padrão, min e max
+        desc = df.describe().to_string()
+        info_buffer.append(desc)
+        
+        print("[Tool: analyze_data] Análise concluída.")
+        return "\n".join(info_buffer)
+        
+    except Exception as e:
+        return f"Erro ao analisar o arquivo: {str(e)}"
+
+# 3. Tool de Notificação
+@tool
+def notify_user(report: str) -> str:
+    """
+    Simula o envio de um e-mail com o relatório final da análise.
+    Deve ser chamada apenas quando a análise exploratória estiver concluída.
+    """
+    print("\n[Tool: notify_user] Preparando o envio da notificação...")
+    
+    # Em um ambiente de produção real, aqui entraria a lógica de SMTP/API (ex: SendGrid, AWS SES)
+    log_file = "relatorio_final_log.txt"
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write("=== RELATÓRIO DE ANÁLISE EXPLORATÓRIA ===\n\n")
+        f.write(report)
+        f.write("\n==========================================\n")
+        
+    print(f"[Tool: notify_user] Notificação salva no arquivo '{log_file}'.")
+    return "Notificação enviada e registrada com sucesso."
+```
+
+---
+
+#### O que acontece fisicamente nesta etapa?
+As funções acima são código Python nativo. A biblioteca `langchain_core` utiliza o decorador `@tool` para abstrair os metadados da função (nome, tipo de entrada e docstring) e transformá-los em um esquema JSON (especificamente, no padrão de *Function Calling*). Na próxima fase, ensinaremos o LangGraph a injetar esse JSON na requisição para o modelo, permitindo que a IA solicite a execução dessas funções.
+
+---
+
+ 
