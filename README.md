@@ -62,8 +62,7 @@ cd ./data-eng-data-analisys-agent
 
 ```
 
-### B. O Ambiente Virtual (O Sandbox do Agente)
-No back-end, isolar as dependências é regra de ouro. Vamos criar um ambiente virtual (venv) e ativá-lo. 
+### B. O Ambiente Virtual
 
 ```bash
 # Cria o ambiente virtual chamado ".venv"
