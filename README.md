@@ -142,7 +142,7 @@ class AgentState(TypedDict):
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 
 # 3. Criando o Nó (A função de processamento)
-def pensar_node(state: AgentState):
+def invocar_modelo_node(state: AgentState):
     print(">>> [Nó: pensar] Acessando a API do Gemini...")
     
     # Lemos a entrada atual do estado
@@ -159,11 +159,11 @@ def pensar_node(state: AgentState):
 workflow = StateGraph(AgentState)
 
 # Adicionamos o nosso único nó
-workflow.add_node("pensar", pensar_node)
+workflow.add_node("invocar_modelo", invocar_modelo_node)
 
 # Definimos o fluxo: Começo -> Nó Pensar -> Fim
-workflow.set_entry_point("pensar")
-workflow.add_edge("pensar", END)
+workflow.set_entry_point("invocar_modelo")
+workflow.add_edge("invocar_modelo", END)
 
 # Compilamos o Grafo para transformá-lo em um executável invocável
 app = workflow.compile()
