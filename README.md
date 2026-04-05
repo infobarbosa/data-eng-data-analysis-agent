@@ -332,19 +332,19 @@ def analyze_data(csv_path: str) -> str:
 def notify_user(report: str) -> str:
     """
     Simula o envio de um e-mail com o relatório final da análise.
-    Deve ser chamada apenas quando a análise exploratória estiver concluída.
     """
-    print("\n[Tool: notify_user] Preparando o envio da notificação...")
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    log_file = os.path.join(base_path, "relatorio_final_log.txt")
     
-    # Em um ambiente de produção real, aqui entraria a lógica de SMTP/API (ex: SendGrid, AWS SES)
-    log_file = "relatorio_final_log.txt"
+    print(f"\n[Tool: notify_user] Gravando relatório em: {log_file}")
+    
     with open(log_file, "w", encoding="utf-8") as f:
         f.write("=== RELATÓRIO DE ANÁLISE EXPLORATÓRIA ===\n\n")
         f.write(report)
         f.write("\n==========================================\n")
         
-    print(f"[Tool: notify_user] Notificação salva no arquivo '{log_file}'.")
     return "Notificação enviada e registrada com sucesso."
+
 ```
 
 ---
@@ -363,6 +363,7 @@ Nesta etapa, estabeleceremos a orquestração principal do sistema. Modificaremo
 Abra o arquivo `agent.py` e substitua o código anterior por esta nova estrutura. Introduziremos o `ToolNode` (um nó predefinido do LangGraph que executa as funções) e o `tools_condition` (uma aresta condicional que realiza o roteamento automático).
 
 ```python
+# agent.py
 from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
@@ -430,6 +431,7 @@ Agora que o agente possui ferramentas e um fluxo de decisão, precisamos atualiz
 Substitua o conteúdo de `main.py` pelo código abaixo:
 
 ```python
+# main.py
 import os
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
@@ -438,10 +440,13 @@ from langchain_core.messages import HumanMessage
 from agent import create_agent_workflow
 
 def main():
+    # Resolve o caminho base do projeto
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
     print("Iniciando a orquestração do Agente Analista de Dados...\n")
     
     # 1. Recuperação de Configurações (Composition Root)
-    load_dotenv()
+    load_dotenv(os.path.join(base_path, ".env"))
     api_key = os.getenv("GEMINI_API_KEY")
     model = os.getenv("GEMINI_MODEL")
     
@@ -454,7 +459,7 @@ def main():
     app = create_agent_workflow(api_key=api_key, model=model)
     
     # 3. Definição do arquivo alvo (que criaremos no Passo 5)
-    arquivo_alvo = "dados_teste.zip"
+    arquivo_alvo = os.path.join(base_path, "dados_teste.zip")
     
     mensagem_usuario = HumanMessage(
         content=f"Inicie a rotina de análise exploratória para o arquivo '{arquivo_alvo}' e notifique-me ao concluir."
@@ -515,10 +520,11 @@ import os
 import numpy as np
 
 def generate_mock_data():
-    print("Gerando massa de dados simulada...")
+    # Captura o diretório onde o script está localizado
+    base_path = os.path.dirname(os.path.abspath(__file__))
     
-    # 1. Definição do conjunto de dados
-    # Incluímos valores nulos (np.nan) intencionalmente na coluna de avaliação
+    print(f"Gerando massa de dados no diretório: {base_path}")
+    
     data = {
         'id_transacao': range(1, 101),
         'valor_compra': np.random.uniform(10.0, 500.0, 100),
@@ -528,24 +534,22 @@ def generate_mock_data():
     }
 
     df = pd.DataFrame(data)
-    csv_filename = 'vendas_mock.csv'
     
-    # 2. Exportação para CSV
-    df.to_csv(csv_filename, index=False)
-
-    # 3. Compactação para ZIP
-    zip_filename = 'dados_teste.zip'
-    with zipfile.ZipFile(zip_filename, 'w') as zipf:
-        zipf.write(csv_filename)
-
-    # 4. Limpeza do arquivo original
-    # Removemos o CSV solto para forçar o agente a utilizar a ferramenta de extração
-    os.remove(csv_filename) 
+    # Define os caminhos absolutos para os arquivos
+    csv_path = os.path.join(base_path, 'vendas_mock.csv')
+    zip_path = os.path.join(base_path, 'dados_teste.zip')
     
-    print(f"Arquivo '{zip_filename}' criado com sucesso no diretório atual.")
+    df.to_csv(csv_path, index=False)
+
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        zipf.write(csv_path, arcname='vendas_mock.csv')
+
+    os.remove(csv_path) 
+    print(f"Arquivo '{zip_path}' criado com sucesso.")
 
 if __name__ == "__main__":
     generate_mock_data()
+
 ```
 
 Execute este script no seu terminal para preparar o ambiente:
