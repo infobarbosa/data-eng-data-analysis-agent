@@ -230,7 +230,7 @@ if __name__ == "__main__":
 
 ---
 
-### C. A Execução (O Teste Físico)
+### C. Execute o teste
 
 Rode o script principal:
 ```bash
@@ -587,3 +587,91 @@ Durante a execução, observe atentamente a saída no terminal. O comportamento 
 Após a execução, um novo arquivo chamado `relatorio_final_log.txt` deverá aparecer no seu diretório. Abra-o para verificar o relatório redigido pelo modelo, contendo as dimensões do dataset, os tipos de dados e as estatísticas geradas pelo Pandas.
 
 ---
+
+## Passo 6: Dedução Ontológica e Inferência Semântica
+
+Até o momento, o agente executa uma análise quantitativa (estatística descritiva). Neste passo, incrementaremos o sistema com a capacidade de realizar uma **análise qualitativa**. O objetivo é que o agente não apenas leia os números, mas deduza o significado real dos dados (Ontologia) e o contexto de negócio do arquivo.
+
+### Por que realizar este incremento?
+Nomes de colunas em bancos de dados costumam ser abreviados ou ambíguos (ex: `CAT`, `VAL`, `USR`). Enquanto a ferramenta de estatística nos dá a "forma" do dado, a inspeção de uma amostra real permite que o modelo de linguagem (LLM) identifique padrões semânticos e infira a identidade do dataset.
+
+### A. Nova Ferramenta de Inspeção (Edite o arquivo `tools.py`)
+
+Adicionaremos a função `get_sample_data`. Ela fornecerá ao agente uma visão direta de alguns registros do arquivo, servindo como a "evidência qualitativa" para a dedução.
+
+```python
+@tool
+def get_sample_data(csv_path: str) -> str:
+    """
+    Retorna as primeiras 5 linhas de um arquivo .csv como uma amostra para inspeção qualitativa.
+    Esta ferramenta deve ser utilizada para inferir o significado semântico das colunas.
+    """
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    if not os.path.isabs(csv_path):
+        csv_path = os.path.join(base_path, csv_path)
+        
+    print(f"\n[Tool: get_sample_data] Obtendo amostra de: {csv_path}")
+    
+    try:
+        df = pd.read_csv(csv_path)
+        # Retorna a amostra em formato string para o histórico de mensagens
+        return df.head(5).to_string()
+    except Exception as e:
+        return f"Erro ao obter amostra: {str(e)}"
+```
+
+### B. Configuração da Lógica de Inferência (Edite o arquivo agent.py)
+
+Precisamos agora registrar a nova ferramenta e, mais importante, atualizar as instruções de comportamento do agente (*System Prompt*) para que ele saiba como correlacionar os dados estatísticos com a amostra coletada.
+
+```python
+# No topo do arquivo, importe a nova ferramenta
+from tools import extract_file, analyze_data, notify_user, get_sample_data
+
+def create_agent_workflow(api_key: str, model: str = "gemini-2.5-flash") -> StateGraph[AgentState]:
+    # ... (instanciação do llm igual ao anterior)
+    
+    # 1. Registro da nova ferramenta
+    tools = [extract_file, analyze_data, get_sample_data, notify_user]
+    llm_with_tools = llm.bind_tools(tools)
+
+    # 2. Atualização das Diretrizes (Protocolo de Dedução)
+    sys_msg = SystemMessage(content="""Você é um agente autônomo de engenharia e análise de dados.
+    Sua missão é realizar uma análise exploratória profunda de arquivos.
+    
+    PROTOCOLO OBRIGATÓRIO:
+    1. EXTRAÇÃO: Utilize 'extract_file' para acessar o conteúdo.
+    2. ESTATÍSTICA: Utilize 'analyze_data' para obter metadados e distribuições.
+    3. INSPEÇÃO QUALITATIVA: Utilize 'get_sample_data' para visualizar exemplos reais dos registros.
+    4. DEDUÇÃO ONTOLÓGICA: Com base nas estatísticas e na amostra, realize uma inferência semântica:
+       - Identifique o que cada coluna representa no mundo real (ex: Moeda, Identificador Único, Categoria de Negócio).
+       - Determine a entidade principal descrita no arquivo (ex: Transações Comerciais, Cadastro de Clientes).
+       - Infira a natureza global do arquivo e seu provável contexto de negócio.
+    5. NOTIFICAÇÃO: Consolide todas as descobertas (estatísticas + dedução ontológica) no relatório final.
+    """)
+    
+    # ... (restante do grafo permanece inalterado)
+```
+
+### C. Execute o teste
+
+Rode o script principal:
+```bash
+python ./data-eng-data-analysis-agent/main.py
+
+```
+
+---
+
+### O que observamos nesta etapa?
+
+Ao executar o `main.py` novamente, observamos que o agente agora realiza uma iteração adicional no grafo. Além do resumo do Pandas, ele solicita a amostra para confirmar suas inferências.
+
+**A Lógica da Correlação:**
+Fisicamente, o modelo de linguagem recebe no seu histórico de mensagens:
+1.  **Evidência A (Estatística):** "A coluna `VAL` tem valores entre 10 e 500".
+2.  **Evidência B (Amostra):** "A coluna `VAL` contém dados como `125.50`, `45.00`".
+3.  **Dedução Cognitiva:** O modelo correlaciona essas informações com o contexto do arquivo e conclui: *"A coluna VAL refere-se ao Valor de Venda Unitário da transação"*.
+
+Este passo demonstra como o LangGraph permite que o agente acumule evidências em seu Estado até que possua informações suficientes para realizar uma inferência de alto nível, simulando o processo de análise de um Engenheiro de Dados humano.
