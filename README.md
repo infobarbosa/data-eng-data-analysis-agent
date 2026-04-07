@@ -90,7 +90,6 @@ langgraph
 langchain-google-genai
 pandas
 python-dotenv
-dotenv
 
 ```
 
@@ -104,13 +103,19 @@ pip install -r ./data-eng-data-analysis-agent/requirements.txt
 
 ```bash
 # Cria os arquivos vazios
-touch ./data-eng-data-analysis-agent/.env ./data-eng-data-analysis-agent/main.py ./data-eng-data-analysis-agent/agent.py ./data-eng-data-analysis-agent/tools.py
+touch ./data-eng-data-analysis-agent/.env 
+touch ./data-eng-data-analysis-agent/main.py 
+touch ./data-eng-data-analysis-agent/agent.py 
+touch ./data-eng-data-analysis-agent/tools.py 
+touch ./data-eng-data-analysis-agent/config.py
 
 ```
+Onde:
 * `.env`: Arquivo destinado ao armazenamento da chave de API.
 * `main.py`: O ponto de entrada (entrypoint) que vai inicializar o fluxo.
 * `agent.py`: Onde vamos desenhar o Grafo (nós e arestas).
-* `tools.py`: Onde ficarão as suas funções puras de Python (suas APIs internas).
+* `tools.py`: Onde ficarão as funções puras de Python (suas APIs internas).
+* `config.py`: Onde ficarão as configurações do agente.
 
 ### E. Configuração da API Key
 O agente precisa de autenticação para realizar requisições ao modelo (LLM). 
@@ -142,7 +147,31 @@ Nesta etapa, não vamos ler nenhum arquivo ainda. Nosso objetivo é garantir que
 
 Utilizaremos o padrão de **Injeção de Dependência**, onde o ponto de entrada da aplicação (`main.py`) fornece as credenciais necessárias para a construção do agente em `agent.py`.
 
-### A. Construindo o Fluxo (Edite o arquivo `agent.py`)
+### A. Configurações (`config.py`)
+Em arquiteturas limpas, o acesso a variáveis de ambiente é considerado um detalhe de infraestrutura. Criaremos o arquivo config.py para encapsular essa responsabilidade, permitindo que o restante da aplicação consuma objetos de configuração tipados e validados.
+```python
+# config.py
+import os
+from dotenv import load_dotenv
+
+class Settings:
+    """
+    Camada de Configuração: Responsável por carregar e validar 
+    as variáveis de ambiente do projeto.
+    """
+    def __init__(self):
+        load_dotenv()
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    def validate(self):
+        """Valida se as credenciais críticas estão presentes."""
+        if not self.gemini_api_key:
+            raise ValueError("ERRO: Variável GEMINI_API_KEY não configurada no arquivo .env")
+
+```
+
+### B. O Fluxo (`agent.py`)
 
 Neste arquivo, definiremos a estrutura de memória do agente (Estado) e uma função de fábrica que encapsula a lógica de criação do grafo.
 
@@ -158,7 +187,7 @@ class AgentState(TypedDict):
     resposta_agente: Optional[str]
 
 # 2. Função de Fábrica para construção do Workflow
-def create_agent_workflow(api_key: str, model: str = "gemini-2.5-flash") -> StateGraph[AgentState]:
+def create_agent_workflow(api_key: str, model: str) -> StateGraph[AgentState]:
     """
     Constrói o grafo do agente injetando a chave de API necessária.
     """
@@ -187,7 +216,7 @@ def create_agent_workflow(api_key: str, model: str = "gemini-2.5-flash") -> Stat
     return workflow.compile()
 ```
 
-### B. O Ponto de Entrada (Edite o arquivo `main.py`)
+### C. O Ponto de Entrada (`main.py`)
 
 O arquivo `main.py` atua como a **Raiz de Composição** (Composition Root). Ele é o responsável por carregar as variáveis de ambiente e injetar a dependência (API Key) no construtor do agente.
 
@@ -200,15 +229,14 @@ def main():
     print("Iniciando o Composition Root da aplicação...\n")
     
     # 1. Carga e recuperação de configurações de ambiente
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-    model = os.getenv("GEMINI_MODEL")
-    
-    if not api_key:
-        raise ValueError("ERRO: Variável GEMINI_API_KEY não configurada no arquivo .env")
-    
+    settings = Settings()
+    settings.validate()
+
     # 2. Injeção de dependência e construção do agente
-    app = create_agent_workflow(api_key=api_key, model=model)
+    app = create_agent_workflow(
+        api_key=settings.gemini_api_key, 
+        model=settings.gemini_model
+    )
     
     # 3. Definição do payload inicial
     estado_inicial = {
@@ -226,11 +254,12 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 ```
 
 ---
 
-### C. Execute o teste
+### D. Execute o teste
 
 Rode o script principal:
 ```bash
@@ -249,101 +278,90 @@ O modelo de linguagem não executa ações no sistema operacional de forma autô
 
 Nesta fase, implementaremos três ferramentas fundamentais no arquivo `tools.py`.
 
-### A. Construindo as Funções (Edite o arquivo `tools.py`)
+### A. Construindo as Funções (`tools.py`)
 
-Abra o arquivo `tools.py` criado no Passo 1 e insira o código abaixo. Observe o uso do decorador `@tool` do LangChain. A *docstring* (texto entre aspas triplas logo abaixo da declaração da função) é crucial, pois é através dela que o modelo entende o propósito da ferramenta e como utilizá-la.
+Abra o arquivo `tools.py` e insira o código abaixo. Observe o uso do decorador `@tool` do LangChain. A *docstring* (texto entre aspas triplas logo abaixo da declaração da função) é crucial, pois é através dela que o modelo entende o propósito da ferramenta e como utilizá-la.
 
 ```python
+# tools.py
 import os
 import zipfile
 import pandas as pd
 from langchain_core.tools import tool
 
-# 1. Tool de Extração de Arquivos
+def get_base_path():
+    """Helper para garantir que os arquivos sejam salvos na pasta do projeto."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+# 1. Tool de Extração (Responsabilidade: I/O de Arquivos)
 @tool
 def extract_file(file_path: str) -> str:
     """
-    Extrai um arquivo .zip e retorna o caminho do arquivo .csv contido nele.
-    Se o arquivo de entrada já for um .csv, retorna o próprio caminho.
+    Extrai um arquivo .zip e retorna o caminho do .csv contido nele.
+    Se já for .csv, valida a existência e retorna o caminho.
     """
-    print(f"\n[Tool: extract_file] Processando o arquivo: {file_path}")
+    base_path = get_base_path()
+    # Resolve o caminho para absoluto se for passado apenas o nome
+    full_path = file_path if os.path.isabs(file_path) else os.path.join(base_path, file_path)
     
-    if not os.path.exists(file_path):
-        return f"Erro: O arquivo {file_path} não foi encontrado."
+    print(f"\n[Tool: extract_file] Verificando: {full_path}")
+    
+    if not os.path.exists(full_path):
+        return f"Erro: Ficheiro não encontrado em {full_path}"
 
-    if file_path.endswith('.csv'):
-        return file_path
-        
-    if file_path.endswith('.zip'):
-        extract_dir = os.path.dirname(file_path)
-        with zipfile.ZipFile(file_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-            extracted_files = zip_ref.namelist()
+    try:
+        if full_path.endswith('.csv'):
+            return full_path
             
-            # Busca o primeiro CSV dentro do ZIP
-            for file in extracted_files:
-                if file.endswith('.csv'):
-                    csv_path = os.path.join(extract_dir, file)
-                    print(f"[Tool: extract_file] Arquivo extraído com sucesso: {csv_path}")
-                    return csv_path
-                    
-        return "Erro: Nenhum arquivo .csv encontrado dentro do .zip."
+        if full_path.endswith('.zip'):
+            with zipfile.ZipFile(full_path, 'r') as zip_ref:
+                zip_ref.extractall(base_path)
+                for f in zip_ref.namelist():
+                    if f.endswith('.csv'):
+                        return os.path.join(base_path, f)
+            return "Erro: Nenhum CSV encontrado no ZIP."
+    except Exception as e:
+        return f"Erro na extração: {str(e)}"
     
-    return "Erro: Formato de arquivo não suportado."
+    return "Erro: Formato não suportado."
 
-# 2. Tool de Análise Estatística (Pandas)
+# 2. Tool de Análise (Responsabilidade: Processamento de Dados)
 @tool
 def analyze_data(csv_path: str) -> str:
     """
-    Lê um arquivo .csv e retorna um resumo estatístico contendo:
-    - O nome das colunas e seus tipos de dados.
-    - A contagem de valores nulos.
-    - As estatísticas descritivas (média, mínimo, máximo, etc.) para colunas numéricas.
+    Realiza análise estatística quantitativa em um arquivo CSV.
+    Retorna dimensões, tipos de dados e estatísticas descritivas.
     """
-    print(f"\n[Tool: analyze_data] Iniciando análise do arquivo: {csv_path}")
+    print(f"\n[Tool: analyze_data] Analisando: {csv_path}")
     
     try:
-        # Carrega os dados usando a biblioteca Pandas
         df = pd.read_csv(csv_path)
-        
-        # Coleta metadados essenciais
-        info_buffer = []
-        info_buffer.append(f"Dimensões do dataset: {df.shape[0]} linhas e {df.shape[1]} colunas.\n")
-        
-        info_buffer.append("Tipos de Dados e Nulos:")
-        for col in df.columns:
-            null_count = df[col].isnull().sum()
-            dtype = str(df[col].dtype)
-            info_buffer.append(f"- Coluna '{col}' ({dtype}): {null_count} valores nulos.")
-            
-        info_buffer.append("\nEstatísticas Descritivas (Colunas Numéricas):")
-        # O método describe() gera estatísticas como média, desvio padrão, min e max
-        desc = df.describe().to_string()
-        info_buffer.append(desc)
-        
-        print("[Tool: analyze_data] Análise concluída.")
-        return "\n".join(info_buffer)
-        
+        stats = {
+            "linhas": df.shape[0],
+            "colunas": df.shape[1],
+            "nulos": df.isnull().sum().to_dict(),
+            "resumo": df.describe().to_string()
+        }
+        return f"Análise concluída: {stats}"
     except Exception as e:
-        return f"Erro ao analisar o arquivo: {str(e)}"
+        return f"Erro na análise: {str(e)}"
 
-# 3. Tool de Notificação
+# 3. Tool de Notificação (Responsabilidade: Comunicação/Output)
 @tool
 def notify_user(report: str) -> str:
     """
-    Simula o envio de um e-mail com o relatório final da análise.
+    Gera o artefato final da análise (relatório de log).
+    Deve ser chamada apenas para encerrar o ciclo de análise.
     """
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    log_file = os.path.join(base_path, "relatorio_final_log.txt")
+    log_path = os.path.join(get_base_path(), "relatorio_final_log.txt")
+    print(f"\n[Tool: notify_user] Gravando relatório em: {log_path}")
     
-    print(f"\n[Tool: notify_user] Gravando relatório em: {log_file}")
-    
-    with open(log_file, "w", encoding="utf-8") as f:
-        f.write("=== RELATÓRIO DE ANÁLISE EXPLORATÓRIA ===\n\n")
-        f.write(report)
-        f.write("\n==========================================\n")
-        
-    return "Notificação enviada e registrada com sucesso."
+    try:
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"=== RELATÓRIO FINAL ===\n\n{report}")
+        return f"Sucesso: Relatório gravado em {log_path}"
+    except Exception as e:
+        return f"Erro na notificação: {str(e)}"
 
 ```
 
@@ -358,11 +376,12 @@ As funções acima são código Python nativo. A biblioteca `langchain_core` uti
 
 Nesta etapa, estabeleceremos a orquestração principal do sistema. Modificaremos o arquivo `agent.py` para implementar um padrão cíclico conhecido como **Tool Calling**. O fluxo consistirá em: o modelo avalia a solicitação, decide acionar uma ferramenta, o LangGraph executa a função localmente, injeta o resultado de volta no estado e devolve ao modelo para uma nova avaliação.
 
-### A. Atualizando a Topologia do Grafo (Edite o arquivo `agent.py`)
+### A. Atualizando a Topologia do Grafo (`agent.py`)
 
 Abra o arquivo `agent.py` e substitua o código anterior por esta nova estrutura. Introduziremos o `ToolNode` (um nó predefinido do LangGraph que executa as funções) e o `tools_condition` (uma aresta condicional que realiza o roteamento automático).
 
 ```python
+# agent.py
 # agent.py
 from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, END
@@ -371,60 +390,63 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage
 
-# Importando as ferramentas
+# Importação das ferramentas (nossos adaptadores de saída)
 from tools import extract_file, analyze_data, notify_user
 
-# 1. Definição do Estado
+# 1. Definição do Estado (Memória do Agente)
 class AgentState(TypedDict):
+    # O add_messages garante que o histórico seja acumulado e não sobrescrito
     messages: Annotated[list, add_messages]
 
-# 2. Função de Fábrica para injeção de dependência
-def create_agent_workflow(api_key: str, model: str = "gemini-2.5-flash") -> StateGraph[AgentState]:
+# 2. Configuração do Comportamento (System Prompt)
+AGENT_SYSTEM_PROMPT = """Você é um agente autônomo de análise de dados.
+Seu objetivo é processar arquivos solicitados, analisá-los e notificar o usuário.
+Siga estas etapas rigorosamente:
+1. Extraia o arquivo fornecido utilizando a ferramenta apropriada.
+2. Analise os dados extraídos para identificar colunas, nulos e distribuições estatísticas.
+3. Elabore um relatório consolidado e envie a notificação ao usuário.
+Sempre utilize as ferramentas disponíveis. Não invente ou simule dados.
+"""
+
+# 3. Função de Fábrica do Orquestrador
+def create_agent_workflow(api_key: str, model: str):
     """
-    Constrói e compila o grafo do agente, injetando as credenciais necessárias.
+    Constrói e compila o grafo do agente, injetando as credenciais.
     """
-    # Instanciação do modelo utilizando a chave injetada explicitamente
-    llm = ChatGoogleGenerativeAI(
-        model=model,
-        temperature=0, 
-        api_key=api_key
-    )
+    llm = ChatGoogleGenerativeAI(model=model, temperature=0, api_key=api_key)
     
+    # Vinculamos as ferramentas ao modelo
     tools = [extract_file, analyze_data, notify_user]
     llm_with_tools = llm.bind_tools(tools)
 
-    sys_msg = SystemMessage(content="""Você é um agente autônomo de análise de dados.
-    Seu objetivo é processar arquivos solicitados, analisá-los e notificar o usuário.
-    Siga estas etapas rigorosamente:
-    1. Extraia o arquivo fornecido utilizando a ferramenta apropriada.
-    2. Analise os dados extraídos para identificar colunas, nulos e distribuições estatísticas.
-    3. Elabore um relatório consolidado e envie a notificação ao usuário.
-    Sempre utilize as ferramentas disponíveis. Não invente ou simule dados.
-    """)
-
     def agent_node(state: AgentState):
-        print(">>> [Nó: Agente] Avaliando o estado atual e determinando a próxima ação...")
-        messages = [sys_msg] + state["messages"]
+        print(">>> [Nó: Agente] Analisando histórico e decidindo próxima ação...")
+        # Injetamos o prompt de sistema no início do histórico de mensagens
+        messages = [SystemMessage(content=AGENT_SYSTEM_PROMPT)] + state["messages"]
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
 
-    # Construção da Topologia do Grafo
+    # Montagem da Topologia do Grafo
     workflow = StateGraph(AgentState)
+    
+    # Adicionamos os nós (unidades de execução)
     workflow.add_node("agent", agent_node)
+    workflow.add_node("tools", ToolNode(tools))
     
-    tool_node = ToolNode(tools)
-    workflow.add_node("tools", tool_node)
-    
+    # Definimos as arestas (fluxo de decisão)
     workflow.set_entry_point("agent")
+    
+    # Aresta Condicional: Decide se vai para as ferramentas ou encerra (END)
     workflow.add_conditional_edges("agent", tools_condition)
+    
+    # Após usar uma ferramenta, o fluxo volta obrigatoriamente para o agente
     workflow.add_edge("tools", "agent")
 
-    # Retorna o aplicativo compilado, pronto para invocação
     return workflow.compile()
 
 ```
 
-### B. Atualizando o Ponto de Entrada (Edite o arquivo `main.py`)
+### B. Atualizando o Ponto de Entrada (`main.py`)
 
 Agora que o agente possui ferramentas e um fluxo de decisão, precisamos atualizar o `main.py` para enviar a solicitação real de análise de dados, abandonando a mensagem de "Hello World".
 
@@ -432,53 +454,43 @@ Substitua o conteúdo de `main.py` pelo código abaixo:
 
 ```python
 # main.py
+# main.py
 import os
-from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-
-# Importamos a função de fábrica em vez do objeto estático
+from config import Settings
 from agent import create_agent_workflow
 
 def main():
-    # Resolve o caminho base do projeto
-    base_path = os.path.dirname(os.path.abspath(__file__))
-
     print("Iniciando a orquestração do Agente Analista de Dados...\n")
     
-    # 1. Recuperação de Configurações (Composition Root)
-    load_dotenv(os.path.join(base_path, ".env"))
-    api_key = os.getenv("GEMINI_API_KEY")
-    model = os.getenv("GEMINI_MODEL")
+    # 1. Recuperação e Validação de Configurações
+    settings = Settings()
+    settings.validate()
     
-    # Validação de segurança em nível de orquestrador
-    if not api_key:
-        raise ValueError("Erro Crítico: A variável de ambiente GEMINI_API_KEY não foi encontrada.")
-        
-    # 2. Injeção de Dependência
-    # O main.py entrega a credencial para o construtor do agente
-    app = create_agent_workflow(api_key=api_key, model=model)
+    # 2. Construção do Agente via Injeção de Dependência
+    app = create_agent_workflow(
+        api_key=settings.gemini_api_key, 
+        model=settings.gemini_model
+    )
     
-    # 3. Definição do arquivo alvo (que criaremos no Passo 5)
+    # 3. Definição do Problema (Input)
+    base_path = os.path.dirname(os.path.abspath(__file__))
     arquivo_alvo = os.path.join(base_path, "dados_teste.zip")
     
     mensagem_usuario = HumanMessage(
-        content=f"Inicie a rotina de análise exploratória para o arquivo '{arquivo_alvo}' e notifique-me ao concluir."
+        content=f"Inicie a rotina de análise para o arquivo '{arquivo_alvo}'."
     )
     
-    estado_inicial = {"messages": [mensagem_usuario]}
-    
-    print("Invocando a execução do fluxo autônomo...\n")
-    
-    # 4. Execução do Grafo
-    estado_final = app.invoke(estado_inicial)
+    # 4. Execução do Fluxo Autônomo
+    print("Invocando a execução do grafo...\n")
+    estado_final = app.invoke({"messages": [mensagem_usuario]})
     
     print("\n=== Execução Concluída ===")
-    
-    resposta_final = estado_final["messages"][-1].content
-    print(resposta_final)
+    print(estado_final["messages"][-1].content)
 
 if __name__ == "__main__":
     main()
+
 ```
 
 ---
@@ -514,38 +526,37 @@ touch ./data-eng-data-analysis-agent/create_mock_data.py
 ```
 
 ```python
+# create_mock_data.py
 import pandas as pd
 import zipfile
 import os
 import numpy as np
 
 def generate_mock_data():
-    # Captura o diretório onde o script está localizado
+    # Resolve o caminho absoluto do diretório deste script
     base_path = os.path.dirname(os.path.abspath(__file__))
+    zip_path = os.path.join(base_path, 'dados_teste.zip')
+    csv_temp_path = os.path.join(base_path, 'vendas_mock.csv')
+
+    print(f"Gerando massa de dados em: {base_path}")
     
-    print(f"Gerando massa de dados no diretório: {base_path}")
-    
+    # Criando dados simulados com nulos para testar a robustez da análise
     data = {
         'id_transacao': range(1, 101),
         'valor_compra': np.random.uniform(10.0, 500.0, 100),
-        'idade_cliente': np.random.randint(18, 70, 100),
         'categoria_produto': np.random.choice(['Eletrônicos', 'Roupas', 'Alimentos'], 100),
-        'avaliacao_cliente': np.random.choice([1.0, 2.0, 3.0, 4.0, 5.0, np.nan], 100)
+        'avaliacao_cliente': np.random.choice([1.0, 5.0, np.nan], 100)
     }
 
     df = pd.DataFrame(data)
-    
-    # Define os caminhos absolutos para os arquivos
-    csv_path = os.path.join(base_path, 'vendas_mock.csv')
-    zip_path = os.path.join(base_path, 'dados_teste.zip')
-    
-    df.to_csv(csv_path, index=False)
+    df.to_csv(csv_temp_path, index=False)
 
+    # Compactação garantindo que o CSV interno não tenha caminhos relativos
     with zipfile.ZipFile(zip_path, 'w') as zipf:
-        zipf.write(csv_path, arcname='vendas_mock.csv')
+        zipf.write(csv_temp_path, arcname='vendas_mock.csv')
 
-    os.remove(csv_path) 
-    print(f"Arquivo '{zip_path}' criado com sucesso.")
+    os.remove(csv_temp_path) 
+    print(f"Sucesso: Arquivo '{zip_path}' gerado.")
 
 if __name__ == "__main__":
     generate_mock_data()
@@ -595,63 +606,64 @@ Até o momento, o agente executa uma análise quantitativa (estatística descrit
 ### Por que realizar este incremento?
 Nomes de colunas em bancos de dados costumam ser abreviados ou ambíguos (ex: `CAT`, `VAL`, `USR`). Enquanto a ferramenta de estatística nos dá a "forma" do dado, a inspeção de uma amostra real permite que o modelo de linguagem (LLM) identifique padrões semânticos e infira a identidade do dataset.
 
-### A. Nova Ferramenta de Inspeção (Edite o arquivo `tools.py`)
+### A. Nova Ferramenta de Inspeção (`tools.py`)
 
 Adicionaremos a função `get_sample_data`. Ela fornecerá ao agente uma visão direta de alguns registros do arquivo, servindo como a "evidência qualitativa" para a dedução.
 
 ```python
+# Adicione ao final do arquivo tools.py
+
 @tool
 def get_sample_data(csv_path: str) -> str:
     """
-    Retorna as primeiras 5 linhas de um arquivo .csv como uma amostra para inspeção qualitativa.
-    Esta ferramenta deve ser utilizada para inferir o significado semântico das colunas.
+    Retorna as primeiras 5 linhas de um ficheiro .csv para inspeção qualitativa.
+    Essencial para inferir o significado semântico das colunas.
     """
-    base_path = os.path.dirname(os.path.abspath(__file__))
+    base_path = get_base_path()
+    full_path = csv_path if os.path.isabs(csv_path) else os.path.join(base_path, csv_path)
     
-    if not os.path.isabs(csv_path):
-        csv_path = os.path.join(base_path, csv_path)
-        
-    print(f"\n[Tool: get_sample_data] Obtendo amostra de: {csv_path}")
+    print(f"\n[Tool: get_sample_data] Obtendo amostra de: {full_path}")
     
     try:
-        df = pd.read_csv(csv_path)
-        # Retorna a amostra em formato string para o histórico de mensagens
+        df = pd.read_csv(full_path)
+        # Retorna o cabeçalho como string para o histórico de mensagens
         return df.head(5).to_string()
     except Exception as e:
         return f"Erro ao obter amostra: {str(e)}"
 ```
 
-### B. Configuração da Lógica de Inferência (Edite o arquivo agent.py)
+### B. Configuração da Lógica de Inferência (agent.py)
 
 Precisamos agora registrar a nova ferramenta e, mais importante, atualizar as instruções de comportamento do agente (*System Prompt*) para que ele saiba como correlacionar os dados estatísticos com a amostra coletada.
 
+#### B.1. Importação da nova ferramenta
 ```python
-# No topo do arquivo, importe a nova ferramenta
+# 1. Atualize a importação no topo do arquivo agent.py
 from tools import extract_file, analyze_data, notify_user, get_sample_data
+```
 
-def create_agent_workflow(api_key: str, model: str = "gemini-2.5-flash") -> StateGraph[AgentState]:
-    # ... (instanciação do llm igual ao anterior)
-    
-    # 1. Registro da nova ferramenta
+#### B.2. Atualização do System Prompt
+```python
+
+# 2. Refine o AGENT_SYSTEM_PROMPT para incluir a diretriz de inferência
+AGENT_SYSTEM_PROMPT = """Você é um agente autônomo de análise de dados.
+Sua missão é realizar uma análise exploratória profunda e semântica.
+
+PROTOCOLO OBRIGATÓRIO:
+1. EXTRAÇÃO: Use 'extract_file' para acessar os dados.
+2. ESTATÍSTICA: Use 'analyze_data' para entender as distribuições.
+3. AMOSTRAGEM: Use 'get_sample_data' para visualizar exemplos reais.
+4. INFERÊNCIA SEMÂNTICA: Cruze as estatísticas com a amostra para deduzir:
+   - O significado de cada coluna no mundo real.
+   - A natureza do ficheiro (ex: Log de Vendas, Cadastro de RH).
+5. NOTIFICAÇÃO: Consolide o relatório técnico e a dedução ontológica.
+"""
+
+```
+#### B.3. Na função create_agent_workflow, inclua a nova ferramenta
+```python
+# 3. Na função create_agent_workflow, inclua a nova ferramenta
     tools = [extract_file, analyze_data, get_sample_data, notify_user]
-    llm_with_tools = llm.bind_tools(tools)
-
-    # 2. Atualização das Diretrizes (Protocolo de Dedução)
-    sys_msg = SystemMessage(content="""Você é um agente autônomo de engenharia e análise de dados.
-    Sua missão é realizar uma análise exploratória profunda de arquivos.
-    
-    PROTOCOLO OBRIGATÓRIO:
-    1. EXTRAÇÃO: Utilize 'extract_file' para acessar o conteúdo.
-    2. ESTATÍSTICA: Utilize 'analyze_data' para obter metadados e distribuições.
-    3. INSPEÇÃO QUALITATIVA: Utilize 'get_sample_data' para visualizar exemplos reais dos registros.
-    4. DEDUÇÃO ONTOLÓGICA: Com base nas estatísticas e na amostra, realize uma inferência semântica:
-       - Identifique o que cada coluna representa no mundo real (ex: Moeda, Identificador Único, Categoria de Negócio).
-       - Determine a entidade principal descrita no arquivo (ex: Transações Comerciais, Cadastro de Clientes).
-       - Infira a natureza global do arquivo e seu provável contexto de negócio.
-    5. NOTIFICAÇÃO: Consolide todas as descobertas (estatísticas + dedução ontológica) no relatório final.
-    """)
-    
-    # ... (restante do grafo permanece inalterado)
 ```
 
 ### C. Execute o teste
