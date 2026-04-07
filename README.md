@@ -499,7 +499,7 @@ if __name__ == "__main__":
 #### O que acontece fisicamente nesta etapa?
 O método `bind_tools` converte as funções Python (extraídas via decorador `@tool`) em um esquema JSON e as anexa ao payload da requisição HTTP. Quando o modelo de linguagem recebe esse payload e identifica que precisa ler um arquivo, sua resposta à API não é um texto convencional, mas sim um objeto estruturado solicitando a chamada da função `extract_file`. 
 
-A função `tools_condition` intercepta essa resposta, roteia a execução para o nó `tools` no seu ambiente local (seu MacBook), executa o código Python da ferramenta, e anexa o resultado (o caminho do CSV, por exemplo) de volta no histórico para que o modelo possa prosseguir com o Passo 2 (análise).
+A função `tools_condition` intercepta essa resposta, roteia a execução para o nó `tools`, executa o código Python da ferramenta, e anexa o resultado (o caminho do CSV, por exemplo) de volta no histórico para que o modelo possa prosseguir com a próxima etapa.
 
 ---
 
