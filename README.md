@@ -5,45 +5,46 @@
 
 ## Introdução
 
-A Inteligência Artificial (IA) Generativa é um ramo da inteligência artificial focado na **criação de novos conteúdos originais**, em vez de apenas analisar ou agir sobre dados existentes. Esses conteúdos podem incluir texto, imagens, música, áudio, vídeos e até mesmo código de software.
+No cenário convencional da Engenharia de Dados, o desenvolvimento de pipelines costuma ser linear e determinístico. Entretanto, a ascensão da Inteligência Artificial Generativa introduz o conceito de **Sistemas Agênticos**. 
 
-O objetivo desse laboratório é implementar um agente simples de análise de dados usando Python e a API do Gemini.
+Um Agente não se limita a um modelo de linguagem (LLM) para respostas textuais; trata-se de um sistema capaz de raciocinar, acionar ferramentas e gerenciar decisões cíclicas para a resolução de problemas complexos. Neste laboratório, o objetivo transcende o simples consumo de modelos de IA, focando na construção da arquitetura funcional (Tools) e lógica (Grafo de Estados) que a governa.
+
+### Objetivos de Aprendizado (Pilares Didáticos):
+* **LangGraph & State Machines:** Gestão de estado e fluxos cíclicos em interações técnicas.
+* **Clean Architecture:** Implementação de *Composition Root* e *Dependency Injection* para isolamento de lógica de negócio.
+* **Single Responsibility Principle (SRP):** Desenvolvimento de ferramentas modulares e independentes.
+* **Inferência Semântica:** Utilização da capacidade cognitiva de LLMs para a dedução da ontologia de dados brutos.
 
 ---
 
-## Plano de Construção: Agente Analista de Dados
+## Metodologia de Construção
 
-Vamos dividir o projeto em 5 fases:
+O projeto está estruturado em seis fases evolutivas, cada uma projetada para elevar a maturidade técnica da solução:
 
-### Passo 1: Setup
-O objetivo aqui é preparar o ambiente, garantindo que as dependências corretas estejam instaladas e que o código consiga "conversar" com a API do Gemini.
-* **1.1.** Criação da estrutura de pastas no diretório `./data-eng-data-analysis-agent`.
-* **1.2.** Configuração do ambiente virtual Python (`venv`).
-* **1.3.** Instalação das bibliotecas core: `langgraph`, `langchain-google-genai` (para o Gemini), `pandas` e `python-dotenv`.
-* **1.4.** Emissão e configuração segura da chave de API do Google Gemini (`.env`).
+### Passo 1: Configuração e Infraestrutura
+Preparação do ambiente isolado e gestão de dependências para assegurar a reprodutibilidade do projeto.
+> ATENÇÃO! Se estiver utilizando Cloud9, utilize esse [tutorial](https://github.com/infobarbosa/data-engineering-cloud9).
 
-### Passo 2: O "Hello World" do LangGraph
-Antes de lidar com arquivos e dados reais, precisamos garantir que a topologia lógica do LangGraph está funcionando.
-* **2.1.** Definição do `AgentState` (memória de curto prazo do nosso agente).
-* **2.2.** Criação de um Grafo mínimo com apenas um nó.
-* **2.3.** Invocação do modelo Gemini 1.5 (Pro ou Flash) apenas para confirmar que a requisição de rede bate no Google e volta com uma resposta válida.
+### Passo 2: Fundamentação Arquitetural
+Estabelecimento da base do sistema através do isolamento de ambiente (`config.py`) e da implementação de funções de fábrica, validando a conectividade via Injeção de Dependência.
 
-### Passo 3: As tools
-O Gemini não consegue abrir um arquivo zip na sua máquina sozinho. Nesta fase, vamos usar suas habilidades de back-end para escrever as funções Python que farão o trabalho pesado, e então empacotá-las como `Tools` que o agente pode usar.
-* **3.1. Tool de Extração:** Uma função para descompactar `.zip` ou ler `.csv` diretamente.
-* **3.2. Tool de Análise (Pandas):** Uma função que recebe o caminho de um CSV, carrega no Pandas e retorna um resumo estatístico (tipos de dados, nulos, distribuições básicas).
-* **3.3. Tool de Notificação:** Um mock simples que simula o envio de um e-mail com o relatório final (usaremos `print` ou um arquivo `.txt` de log inicialmente para não perder tempo configurando SMTP agora).
+### Passo 3: Adaptadores de Saída (Tools)
+Desenvolvimento de componentes operacionais fundamentados no princípio de Responsabilidade Única (SRP), abrangendo extração, análise estatística e notificação.
 
-### Passo 4: Orquestração do Workflow
-Nesta etapa, estabelecemos a orquestração principal do sistema. Vamos unir as Tools construídas na Fase 3 com o Grafo iniciado na Fase 2.
-* **4.1.** Criação do nó de Roteamento: Ensinar o LangGraph a entrar em um loop onde ele decide usar uma ferramenta, observa o resultado, e decide se precisa usar outra.
-* **4.2.** Definição do "System Prompt" do Agente: As instruções claras de como ele deve se comportar como um analista de dados exploratório (ex: "Sempre verifique se há múltiplas entidades em um arquivo antes de gerar o relatório").
+### Passo 4: Orquestração do Workflow (Padrão ReAct)
+Implementação do ciclo de raciocínio lógico. Nesta fase, as ferramentas são integradas ao grafo, separando as definições de comportamento (*System Prompt*) da estrutura de execução.
 
-### Passo 5: Teste end-to-end
-A validação final do sistema autônomo.
-* **5.1.** Criação de um arquivo `.zip` contendo dados "sujos" (mock data) simulando uma extração de banco de dados.
-* **5.2.** Execução do script principal apontando para este arquivo.
-* **5.3.** Análise dos logs (ver o agente decidindo descompactar, depois decidindo ler as colunas, depois gerando as estatísticas e, por fim, acionando a notificação).
+### Passo 5: Validação End-to-End e Observabilidade
+Execução do pipeline integrado com massa de dados simulada. O foco reside na auditoria dos registros para compreensão da evolução do estado do agente durante a resolução de problemas.
+
+### Passo 6: Cognição e Dedução Ontológica
+Integração de ferramentas de amostragem qualitativa. O objetivo é permitir que o agente correlacione evidências estatísticas com exemplos reais para inferir o significado semântico e o contexto de negócio do conjunto de dados.
+
+---
+
+## Metodologia de Implementação
+
+Este é um laboratório estritamente prático (*Hands-on*). Nenhum código-fonte será fornecido previamente; a eficácia do aprendizado depende da leitura atenta das instruções, da correta interpretação dos conceitos arquiteturais e da implementação manual de cada componente. Através da transcrição e construção dos artefatos (`config.py`, `agent.py`, `tools.py`, `main.py`), o aluno consolida o conhecimento sobre a engenharia por trás de sistemas inteligentes.
 
 ---
 
