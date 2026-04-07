@@ -503,14 +503,6 @@ A função `tools_condition` intercepta essa resposta, roteia a execução para 
 
 ---
 
-Excelente. Chegamos à etapa final do laboratório, onde consolidamos todo o conhecimento aplicado.
-
-Neste **Passo 5**, vamos gerar uma massa de dados controlada (mock data) para simular um cenário real de engenharia de dados. Em seguida, executaremos o pipeline de ponta a ponta e analisaremos o comportamento autônomo do agente através dos logs gerados no terminal.
-
-Adicione este conteúdo ao seu material didático:
-
----
-
 ## Passo 5: Teste End-to-End
 
 A validação de um sistema autônomo exige um cenário com variáveis conhecidas para que possamos auditar as decisões tomadas pelo modelo. Para isso, criaremos um arquivo compactado contendo uma base de dados simulada.
